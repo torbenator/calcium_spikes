@@ -10,25 +10,20 @@ from tensorflow.contrib import rnn
 import numpy as np
 from sklearn import preprocessing
 from sklearn.model_selection import train_test_split
+from copy import deepcopy as cp
 
-def create_attributes(calcium, spikes, num_history = 45, num_fut = 1, offset_step=1, num_der = 2, integ_kernel = 100):
+def create_attributes(calcium, spikes, num_history = 199, offset_step=1):
 # num_history = number of points in the past used as attribute, 
-# num_fut = number of points in the future taken as attribute, offset_step = distance between history/future points
-# num_der = maximum order of derivative, integ_kernel  = window size of running cumsum 
     print("Creating additional attributes...")
+    calcium = preprocessing.scale(calcium)
     cal_past = np.asarray([np.roll(np.squeeze(calcium),(ii+1)*offset_step) for ii in range(num_history)]).T # History
-    cal_fut = np.asarray([np.roll(np.squeeze(calcium),-(ii+1)*offset_step) for ii in range(num_fut)]).T # Future
-    cal_grad = np.asarray([np.append(np.diff(np.squeeze(calcium),ii+1),np.zeros(ii+1)) for ii in range(num_der)]).T # n-Gradients upto n-order      
-    cal_integ =  np.cumsum(calcium) # Cum-sum
-    cal_integ = (cal_integ[integ_kernel:]-cal_integ[:-integ_kernel])/integ_kernel # Moving Avg
-    cal_avg =  np.asarray([np.lib.pad(cal_integ, (len(calcium)-len(cal_integ),0), 'edge')]).T # Padded with additional values to maintain original size   
-    att_data_raw = np.concatenate((calcium,cal_past,cal_fut,cal_grad, cal_avg), axis = 1)     
+    att_data_raw = np.concatenate((calcium,cal_past), axis = 1)     
     mask = np.ones(len(att_data_raw),dtype=bool) # Clip the edges with inaccurate attributes
-    mask[:integ_kernel], mask[-num_fut*offset_step:] = False,False
+    mask[:num_history+1], mask[-num_history*offset_step:] = False,False
     att_data = att_data_raw[mask]
     clipped_spikes = spikes[mask].astype(np.float64)    
     return att_data, clipped_spikes
-    
+
 def one_hot_label(label):
 # One hot representation of labels for cross entropy measurement
     print("Using onehot representation")
@@ -52,17 +47,18 @@ def pre_train(att_data,clipped_spikes,batch_size):
     test_y = one_hot_label(test_y)
     return train_x, test_x, train_y, test_y
     
-# RNN
-    
+# RNN    
 hm_epochs = 10
 n_classes = 2
 batch_size = 128
-chunk_size = 5
+chunk_size = 20
 n_chunks = 10
 rnn_size = 64
+drop = 0.9
 
 x = tf.placeholder('float', [None, n_chunks,chunk_size])
 y = tf.placeholder('float')
+
 
 def recurrent_neural_network(x):
     layer = {'weights':tf.Variable(tf.random_normal([rnn_size,n_classes])),
@@ -72,13 +68,16 @@ def recurrent_neural_network(x):
     
     # Get lstm cell output
     outputs, states = rnn.static_rnn(lstm_cell, x, dtype=tf.float32)
-    output = tf.matmul(outputs[-1],layer['weights']) + layer['biases']
+    output = tf.nn.softmax(tf.matmul(outputs[-1],layer['weights']) + layer['biases'])
+    output = tf.nn.dropout(output,drop)
     return output
     
 def train_neural_network(att_data, clipped_spikes):
     [train_x, test_x, train_y, test_y]=pre_train(att_data,clipped_spikes,batch_size)
-    prediction = recurrent_neural_network(x)
-    cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=prediction, labels=y))
+    prediction = recurrent_neural_network(x) 
+    cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=prediction, labels=y))   
+    correct_pred = tf.equal(tf.argmax(prediction,1), tf.argmax(y,1))
+    accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
     optimizer = tf.train.AdamOptimizer().minimize(cost)
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
@@ -97,12 +96,29 @@ def train_neural_network(att_data, clipped_spikes):
             print('Epoch', epoch+1, 'completed out of ', hm_epochs,'loss:',epoch_loss)
             test_x = test_x.reshape((-1,n_chunks,chunk_size))
             spike_predict= prediction.eval({x:test_x})
+            acc = accuracy.eval({x: test_x, y: test_y})  
     tf.reset_default_graph()
-    return test_y, spike_predict            
+    return test_y, spike_predict, acc    
+
+def pcsn(test_spikes,predicted_spikes):
+    pred = predicted_spikes[:,1]
+    pred[pred>0]=1
+    pred = 1-pred
+    pred2 = cp(pred)
+    for ii in range(len(pred)-1):
+        if ii>0:    
+            if pred[ii]==1:
+                pred2[ii+1]=1
+                pred2[ii-1]=1           
+    test = test_spikes[:,0]
+    count = 2*test-pred2
+    pcn = len(np.where(count>0)[0])/np.sum(test)
+    return pcn         
 
 def main(calcium,spikes):
 #    Provide inputs as 1D column vector of shape (N,1)
     [att_data,clipped_spikes] = create_attributes(calcium,spikes)
-    [test_spikes, predicted_spikes]= train_neural_network(att_data,clipped_spikes)
-    return test_spikes, predicted_spikes
+    [test_spikes, predicted_spikes, acc]= train_neural_network(att_data,clipped_spikes)
+    pcn = pcsn(test_spikes,predicted_spikes)
+    return test_spikes, predicted_spikes, acc, pcn
     
