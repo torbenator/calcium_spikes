@@ -3,7 +3,6 @@ import numpy as np
 
 
 
-
 def plot_feature_mat(complete_feature_mat, inds = [0,1000],srate=100):
     """
     tool to visualize feature matrix
