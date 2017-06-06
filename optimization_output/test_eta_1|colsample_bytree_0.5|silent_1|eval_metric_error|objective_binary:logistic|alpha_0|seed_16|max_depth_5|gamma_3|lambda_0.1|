@@ -1,0 +1,4 @@
+spike_bin,true_positive,false_positive,true negative,false negative
+0,95739.0,2492.0,96959.0,95739.0,1220.0
+1,549.0,1220.0,3041.0,95739.0,1220.0
+correlation: ,0.21877328787

@@ -44,6 +44,7 @@ def load_data(root_dir, norm_calcium=False):
     this_loc = []
     this_bs = []
     this_ind = []
+    cell_ind = []
     n_cells = 0
     for f in xrange(len(fnames)):
         if fnames[f] in only_these:
@@ -51,7 +52,7 @@ def load_data(root_dir, norm_calcium=False):
             cells = raw_data['data'][0]
 
             for c in xrange(len(cells)):
-                n_cells +=1
+
                 calcium = cells[c][0][0][calcium_ind][0]
                 spikes = cells[c][0][0][spike_ind][0]
                 fps = cells[c][0][0][fps_ind][0]
@@ -64,6 +65,8 @@ def load_data(root_dir, norm_calcium=False):
                 this_loc.append([location[f]]*calcium.shape[0])
                 this_bs.append([brain_state[f]]*calcium.shape[0])
                 this_ind.append([indicator[f]]*calcium.shape[0])
+                cell_ind.append([n_cells]*calcium.shape[0])
+                n_cells +=1
 
     print str(n_cells) + ' cells loaded'
 
@@ -72,9 +75,9 @@ def load_data(root_dir, norm_calcium=False):
     all_loc = np.concatenate(this_loc,0)
     all_bs = np.concatenate(this_bs,0)
     all_ind = np.concatenate(this_ind,0)
+    all_cell_ind = np.concatenate(cell_ind,0)
 
-    return all_calcium, all_spikes, all_loc, all_bs, all_ind
-
+    return all_calcium, all_spikes, all_loc, all_bs, all_ind, all_cell_ind
 
 
 
@@ -143,6 +146,7 @@ def gkern(kernlen=21, nsig=3):
 
     return kern1d
 
+
 def build_feature_mat(all_calcium, all_loc, all_ind, all_bs):
     """
     Calls methods above to organize and process data.
@@ -151,9 +155,8 @@ def build_feature_mat(all_calcium, all_loc, all_ind, all_bs):
 
     offset_mat = build_offset_features(all_calcium,20)
     derivative_mat = build_derivative_features(all_calcium)
-    smooth_mat = build_smoothed_features(all_calcium,11)
+    smooth_mat = build_smoothed_features(all_calcium,15)
     complete_feature_mat = np.vstack([all_calcium,smooth_mat,offset_mat,derivative_mat,all_loc,all_bs,all_ind])
-
 
     return complete_feature_mat
 
@@ -166,7 +169,7 @@ def build_train_test_sets(complete_feature_mat,all_spikes, ceil_spikes=True, sub
     if subsample:
         sample_inds = np.random.choice(complete_feature_mat.shape[1], subsample)
     else:
-        sample_inds = xrange(len(complete_feature_mat.shape[1]))
+        sample_inds = xrange(complete_feature_mat.shape[1])
 
     calcium = complete_feature_mat[:,sample_inds]
     spikes = all_spikes[sample_inds]
