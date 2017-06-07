@@ -82,7 +82,7 @@ def optimize_binary(X_train,X_test,y_train,y_test,params=None, opt_params_dict=N
 		if verbose:
 			print 'Run ' + str(e) + '/' + str(len(all_param_combos))
 			print 'running params: ' + str(these_params.items())
-			print 'file: ' + fname +
+			print 'file: ' + fname
 
 		Yr, Yt, model = boosting.binary_booster(X_train, X_test, y_train, y_test, params=params)
 		train_metrics, test_metrics, [train_scores, test_scores] = output_analysis.calculate_accuracy_metrics(y_train,y_test, Yr, Yt, myceil=0.5, verbose=verbose)
